@@ -1,23 +1,15 @@
-import CookieManager from '@react-native-cookies/cookies';
 import axios from 'axios';
-
-const API_BASE_URL = 'http://10.0.2.2:8080';
+import { useAuthStore } from '../store/authStore';
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: 'http://192.168.0.233:8080',
   headers: { 'Content-Type': 'application/json' },
-  withCredentials: true,
 });
 
-// Ručno dodaj cookies na svaki request
-api.interceptors.request.use(async (config) => {
-  const cookies = await CookieManager.get(API_BASE_URL);
-  const cookieHeader = Object.entries(cookies)
-    .map(([key, val]) => `${key}=${val.value}`)
-    .join('; ');
-
-  if (cookieHeader) {
-    config.headers.Cookie = cookieHeader;
+api.interceptors.request.use((config) => {
+  const token = useAuthStore.getState().token;
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });

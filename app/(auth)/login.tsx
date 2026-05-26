@@ -1,8 +1,8 @@
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
-    ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
-    StyleSheet, Text, TextInput, TouchableOpacity, View
+  ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
+  StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
 import api from '../../services/api';
 import { getSites } from '../../services/profileService';
@@ -22,8 +22,9 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const response = await api.post('/api/auth/login', { email, password });
-      const { fullName, email: userEmail, role } = response.data;
-      setAuth(fullName, userEmail, role);
+      console.log('LOGIN RESPONSE:', JSON.stringify(response.data));
+      const { fullName, email: userEmail, role, token } = response.data;
+      setAuth(fullName, userEmail, role, token);
 
       // Dohvati siteId kroz profileService
       const sites = await getSites();

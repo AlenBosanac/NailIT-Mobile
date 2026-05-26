@@ -1,4 +1,4 @@
-import api from '@/services/api';
+import { getProfile, getSchedule } from '@/services/profileService';
 import { useAuthStore } from '@/store/authStore';
 import { router } from 'expo-router';
 import { Briefcase, Calendar, ChevronRight, LogOut, Mail, Phone, User, Wrench } from 'lucide-react-native';
@@ -13,7 +13,7 @@ import {
     View,
 } from 'react-native';
 
-type Tab = 'osobni' | 'vjestine' | 'raspored';
+type Tab = 'personal' | 'skills' | 'schedule';
 
 interface ProfileData {
   fullName: string;
@@ -25,15 +25,15 @@ interface ProfileData {
 }
 
 interface ScheduleItem {
-  date: string;
-  startTime: string;
-  endTime: string;
+  shiftStart: string;
+  shiftEnd: string;
   siteName: string;
+  notes?: string;
 }
 
 export default function ProfileScreen() {
   const { fullName, email, role, logout } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<Tab>('osobni');
+  const [activeTab, setActiveTab] = useState<Tab>('personal');
 
   const [profile, setProfile]     = useState<ProfileData | null>(null);
   const [schedule, setSchedule]   = useState<ScheduleItem[]>([]);
@@ -44,20 +44,20 @@ export default function ProfileScreen() {
   }, []);
 
   const fetchAll = async () => {
-    setLoading(true);
-    try {
-      const [profileRes, scheduleRes] = await Promise.all([
-        api.get('/api/profile'),
-        api.get('/api/profile/schedule'),
-      ]);
-      setProfile(profileRes.data);
-      setSchedule(scheduleRes.data);
-    } catch (e) {
-      console.error('Profile fetch error:', e);
-    } finally {
-      setLoading(false);
-    }
-  };
+  setLoading(true);
+  try {
+    const [profileData, scheduleData] = await Promise.all([
+      getProfile(),
+      getSchedule(),
+    ]);
+    setProfile(profileData);
+    setSchedule(scheduleData);
+  } catch (e) {
+    console.error('Profile fetch error:', e);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleLogout = () => {
     logout();
@@ -90,17 +90,17 @@ export default function ProfileScreen() {
 
       {/* Tabs */}
       <View style={styles.tabBar}>
-        {(['osobni', 'vjestine', 'raspored'] as Tab[]).map(tab => (
+        {(['personal', 'skills', 'schedule'] as Tab[]).map(tab => (
           <TouchableOpacity
             key={tab}
             style={[styles.tab, activeTab === tab && styles.tabActive]}
             onPress={() => setActiveTab(tab)}
           >
-            {tab === 'osobni'   && <User     size={16} color={activeTab === tab ? '#FF6B35' : '#999'} />}
-            {tab === 'vjestine' && <Wrench   size={16} color={activeTab === tab ? '#FF6B35' : '#999'} />}
-            {tab === 'raspored' && <Calendar size={16} color={activeTab === tab ? '#FF6B35' : '#999'} />}
+            {tab === 'personal'   && <User     size={16} color={activeTab === tab ? '#FF6B35' : '#999'} />}
+            {tab === 'skills' && <Wrench   size={16} color={activeTab === tab ? '#FF6B35' : '#999'} />}
+            {tab === 'schedule' && <Calendar size={16} color={activeTab === tab ? '#FF6B35' : '#999'} />}
             <Text style={[styles.tabLabel, activeTab === tab && styles.tabLabelActive]}>
-              {tab === 'osobni' ? 'Osobni' : tab === 'vjestine' ? 'Vještine' : 'Raspored'}
+              {tab === 'personal' ? 'Personal' : tab === 'skills' ? 'Skills' : 'Schedule'}
             </Text>
           </TouchableOpacity>
         ))}
@@ -113,15 +113,15 @@ export default function ProfileScreen() {
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
 
-          {/* OSOBNI PODACI */}
-          {activeTab === 'osobni' && (
+          {/* PERSONAL INFORMATION */}
+          {activeTab === 'personal' && (
             <View>
-              <Text style={styles.sectionTitle}>Osobni podaci</Text>
-              <InfoRow icon={<User     size={18} color="#FF6B35" />} label="Ime i prezime" value={profile?.fullName ?? fullName ?? '-'} />
+              <Text style={styles.sectionTitle}>Personal Information</Text>
+              <InfoRow icon={<User     size={18} color="#FF6B35" />} label="Name" value={profile?.fullName ?? fullName ?? '-'} />
               <InfoRow icon={<Mail     size={18} color="#FF6B35" />} label="Email"         value={profile?.email ?? email ?? '-'} />
-              <InfoRow icon={<Phone    size={18} color="#FF6B35" />} label="Telefon"       value={profile?.phone ?? '-'} />
-              <InfoRow icon={<Briefcase size={18} color="#FF6B35" />} label="Pozicija"    value={profile?.role ?? role ?? '-'} />
-              <InfoRow icon={<Calendar size={18} color="#FF6B35" />} label="Zaposlen od"  value={profile?.createdAt ? formatDate(profile.createdAt) : '-'} />
+              <InfoRow icon={<Phone    size={18} color="#FF6B35" />} label="Phone"       value={profile?.phone ?? '-'} />
+              <InfoRow icon={<Briefcase size={18} color="#FF6B35" />} label="Position"    value={profile?.role ?? role ?? '-'} />
+              <InfoRow icon={<Calendar size={18} color="#FF6B35" />} label="Hired Date"  value={profile?.createdAt ? formatDate(profile.createdAt) : '-'} />
 
               <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
                 <LogOut size={18} color="#fff" />
@@ -131,9 +131,9 @@ export default function ProfileScreen() {
           )}
 
           {/* VJEŠTINE */}
-          {activeTab === 'vjestine' && (
+          {activeTab === 'skills' && (
             <View>
-              <Text style={styles.sectionTitle}>Vještine i kompetencije</Text>
+              <Text style={styles.sectionTitle}>Skills and Competencies</Text>
               {profile?.skills && profile.skills.length > 0 ? (
                 <View style={styles.skillsGrid}>
                   {profile.skills.map((skill, i) => (
@@ -145,38 +145,45 @@ export default function ProfileScreen() {
               ) : (
                 <View style={styles.emptyState}>
                   <Wrench size={40} color="#ddd" />
-                  <Text style={styles.emptyText}>Nema dodanih vještina</Text>
-                  <Text style={styles.emptySubText}>Kontaktirajte voditelja gradilišta</Text>
+                  <Text style={styles.emptyText}>No skills added</Text>
+                  <Text style={styles.emptySubText}>Contact your site manager</Text>
                 </View>
               )}
             </View>
           )}
 
-          {/* RASPORED */}
-          {activeTab === 'raspored' && (
-            <View>
-              <Text style={styles.sectionTitle}>Raspored</Text>
-              {schedule.length > 0 ? (
-                schedule.map((item, i) => (
-                  <View key={i} style={styles.dayRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.dayName}>{formatDay(item.date)}</Text>
-                      <Text style={styles.daySite}>{item.siteName}</Text>
-                    </View>
-                    <Text style={styles.dayHours}>
-                      {item.startTime.slice(0, 5)} – {item.endTime.slice(0, 5)}
-                    </Text>
-                  </View>
-                ))
-              ) : (
-                <View style={styles.emptyState}>
-                  <Calendar size={40} color="#ddd" />
-                  <Text style={styles.emptyText}>Nema rasporeda</Text>
-                  <Text style={styles.emptySubText}>Raspored još nije dodijeljen</Text>
-                </View>
-              )}
-            </View>
-          )}
+        {/* RASPORED */}
+{activeTab === 'schedule' && (
+  <View>
+    <Text style={styles.sectionTitle}>Schedule</Text>
+    {schedule.length > 0 ? (
+      schedule.map((item, i) => (
+        <View key={i} style={styles.dayRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.dayName}>
+              {new Date(item.shiftStart).toLocaleDateString('hr-HR', {
+                weekday: 'long', day: '2-digit', month: '2-digit'
+              })}
+            </Text>
+            <Text style={styles.daySite}>{item.siteName}</Text>
+            {item.notes && <Text style={styles.dayNotes}>{item.notes}</Text>}
+          </View>
+          <Text style={styles.dayHours}>
+            {new Date(item.shiftStart).toLocaleTimeString('hr-HR', { hour: '2-digit', minute: '2-digit' })}
+            {' – '}
+            {new Date(item.shiftEnd).toLocaleTimeString('hr-HR', { hour: '2-digit', minute: '2-digit' })}
+          </Text>
+        </View>
+      ))
+    ) : (
+      <View style={styles.emptyState}>
+        <Calendar size={40} color="#ddd" />
+        <Text style={styles.emptyText}>No schedule available</Text>
+        <Text style={styles.emptySubText}>Schedule has not been assigned yet</Text>
+      </View>
+    )}
+  </View>
+)}
 
         </ScrollView>
       )}
@@ -232,6 +239,7 @@ const styles = StyleSheet.create({
   dayName:         { fontSize: 13, fontWeight: '700', color: '#1A1A1A', textTransform: 'capitalize' },
   daySite:         { fontSize: 12, color: '#666', marginTop: 2 },
   dayHours:        { fontSize: 13, fontWeight: '600', color: '#FF6B35' },
+  dayNotes: { fontSize: 11, color: '#aaa', marginTop: 2, fontStyle: 'italic' },
 
   emptyState:      { alignItems: 'center', paddingVertical: 48, gap: 8 },
   emptyText:       { fontSize: 16, fontWeight: '600', color: '#aaa' },

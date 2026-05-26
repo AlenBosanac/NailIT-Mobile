@@ -1,42 +1,58 @@
+import {
+    createIncident,
+    getIncidents,
+    Incident, IncidentCategory, IncidentPriority,
+    uploadIncidentPhoto,
+} from '@/services/incidentService';
+import { useAuthStore } from '@/store/authStore';
 import * as ImagePicker from 'expo-image-picker';
+import { AlertTriangle, Camera, Plus, X } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator, Alert,
     FlatList,
+    Image,
     Modal,
+    RefreshControl,
+    SafeAreaView,
     ScrollView,
     StyleSheet,
     Text,
     TextInput,
     TouchableOpacity,
-    View
+    View,
 } from 'react-native';
-import { createIncident, getIncidents, Incident, IncidentCategory, IncidentPriority } from '../../services/incidentService';
-import { useAuthStore } from '../../store/authStore';
 
-const priorityColor: Record<string, string> = {
-  Low: '#4CAF50', Medium: '#FF9800', High: '#F44336', Critical: '#9C27B0',
+const KATEGORIJE: IncidentCategory[] = ['Safety', 'Equipment', 'Material', 'Other'];
+const PRIORITETI: IncidentPriority[] = ['Low', 'Medium', 'High', 'Critical'];
+
+const kategorijaLabel: Record<IncidentCategory, string> = {
+  Safety: 'Safety', Equipment: 'Equipment', Material: 'Material', Other: 'Other',
 };
-
+const prioritetLabel: Record<IncidentPriority, string> = {
+  Low: 'Low', Medium: 'Medium', High: 'High', Critical: 'Critical',
+};
+const prioritetBoja: Record<IncidentPriority, string> = {
+  Low: '#4CAF50', Medium: '#FF9800', High: '#FF6B35', Critical: '#F44336',
+};
 const statusLabel: Record<string, string> = {
-  Open: 'Otvoreno', InProgress: 'U obradi', Closed: 'Zatvoreno',
+  Open: 'Open', InReview: 'In Review', Closed: 'Closed',
 };
-
-const categories: IncidentCategory[] = ['Safety', 'Equipment', 'Material', 'Other'];
-const priorities: IncidentPriority[] = ['Low', 'Medium', 'High', 'Critical'];
 
 export default function IncidentsScreen() {
   const { siteId } = useAuthStore();
   const [incidents, setIncidents] = useState<Incident[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]     = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [photo, setPhoto] = useState<string | null>(null);
 
-  const [title, setTitle] = useState('');
+  // Forma
+  const [title, setTitle]           = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState<IncidentCategory>('Other');
-  const [priority, setPriority] = useState<IncidentPriority>('Medium');
+  const [category, setCategory]     = useState<IncidentCategory>('Safety');
+  const [priority, setPriority]     = useState<IncidentPriority>('Medium');
+  const [photos, setPhotos]         = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => { fetchIncidents(); }, []);
 
@@ -45,177 +61,276 @@ export default function IncidentsScreen() {
       const data = await getIncidents();
       setIncidents(data);
     } catch {
-      Alert.alert('Greška', 'Nije moguće dohvatiti incidente.');
+      Alert.alert('Error', 'Unable to fetch incidents.');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  const pickPhoto = async () => {
+  const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Greška', 'Potrebna je dozvola za galeriju.');
+      Alert.alert('Error', 'Permission to access media library is required.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
+      quality: 0.7,
+      allowsMultipleSelection: false,
     });
-    if (!result.canceled) setPhoto(result.assets[0].uri);
+    if (!result.canceled && result.assets[0]) {
+      setPhotos(prev => [...prev, result.assets[0].uri]);
+    }
   };
 
   const takePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Greška', 'Potrebna je dozvola za kameru.');
+      Alert.alert('Error', 'Permission to access camera is required.');
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
-    if (!result.canceled) setPhoto(result.assets[0].uri);
+    const result = await ImagePicker.launchCameraAsync({
+      quality: 0.7,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setPhotos(prev => [...prev, result.assets[0].uri]);
+    }
   };
 
   const handleSubmit = async () => {
-    if (!title.trim() || !description.trim()) {
-      Alert.alert('Greška', 'Naslov i opis su obavezni.');
-      return;
-    }
-    if (!siteId) {
-      Alert.alert('Greška', 'Nije pronađeno gradilište.');
-      return;
-    }
+    if (!title.trim())       { Alert.alert('Error', 'Please enter a title.'); return; }
+    if (!description.trim()) { Alert.alert('Error', 'Please enter a description.'); return; }
+    if (!siteId)             { Alert.alert('Error', 'You are not assigned to a construction site.'); return; }
+
     setSubmitting(true);
     try {
-      await createIncident({ siteId, title, description, category, priority });
-      Alert.alert('Uspjeh', '✅ Incident prijavljen!');
+      const { id } = await createIncident({ siteId, title, description, category, priority });
+
+      for (const uri of photos) {
+        try { await uploadIncidentPhoto(id, uri); }
+        catch { }
+      }
+
+      Alert.alert('Success', ' Incident reported!');
+      resetForma();
       setModalVisible(false);
-      setTitle(''); setDescription(''); setPhoto(null);
-      setCategory('Other'); setPriority('Medium');
       fetchIncidents();
-    } catch {
-      Alert.alert('Greška', 'Nije moguće prijaviti incident.');
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'Error occurred while submitting incident.';
+      Alert.alert('Error', msg);
     } finally {
       setSubmitting(false);
     }
   };
 
+  const resetForma = () => {
+    setTitle(''); setDescription('');
+    setCategory('Safety'); setPriority('Medium');
+    setPhotos([]);
+  };
+
   if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color="#FF6B35" />;
 
   return (
-    <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <Text style={styles.header}>Incidenti</Text>
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Incidents</Text>
         <TouchableOpacity style={styles.addBtn} onPress={() => setModalVisible(true)}>
-          <Text style={styles.addBtnText}>+ Prijavi</Text>
+          <Plus size={20} color="#fff" />
         </TouchableOpacity>
       </View>
 
+      {/* Lista */}
       <FlatList
         data={incidents}
-        keyExtractor={(item) => item.id}
-        ListEmptyComponent={<Text style={styles.empty}>Nema prijavljenih incidenata.</Text>}
+        keyExtractor={i => i.id}
+        contentContainerStyle={{ padding: 16 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchIncidents(); }} />}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <AlertTriangle size={40} color="#ddd" />
+            <Text style={styles.emptyText}>No incidents reported</Text>
+          </View>
+        }
         renderItem={({ item }) => (
           <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.title}>{item.title}</Text>
-              <View style={[styles.badge, { backgroundColor: priorityColor[item.priority] }]}>
-                <Text style={styles.badgeText}>{item.priority}</Text>
+            <View style={styles.cardTop}>
+              <Text style={styles.cardTitle}>{item.title}</Text>
+              <View style={[styles.priorityBadge, { backgroundColor: prioritetBoja[item.priority] }]}>
+                <Text style={styles.priorityText}>{prioritetLabel[item.priority]}</Text>
               </View>
             </View>
-            <Text style={styles.description}>{item.description}</Text>
-            <View style={styles.cardFooter}>
-              <Text style={styles.meta}>📍 {item.siteName}</Text>
-              <Text style={styles.meta}>{statusLabel[item.status]}</Text>
+            <Text style={styles.cardDesc} numberOfLines={2}>{item.description}</Text>
+            <View style={styles.cardMeta}>
+              <Text style={styles.metaText}>📍 {item.siteName}</Text>
+              <Text style={styles.metaText}>🗂 {kategorijaLabel[item.category]}</Text>
             </View>
-            <Text style={styles.date}>{new Date(item.createdAt).toLocaleDateString('hr-HR')}</Text>
+            <View style={styles.cardFooter}>
+              <Text style={styles.statusText}>{statusLabel[item.status]}</Text>
+              <Text style={styles.dateText}>
+                {new Date(item.createdAt).toLocaleDateString('hr-HR')}
+              </Text>
+            </View>
           </View>
         )}
       />
 
-      {/* Modal za prijavu incidenta */}
+      {/* Modal — forma */}
       <Modal visible={modalVisible} animationType="slide" presentationStyle="pageSheet">
-        <ScrollView style={styles.modal}>
-          <Text style={styles.modalHeader}>Prijava incidenta</Text>
-
-          <Text style={styles.label}>Naslov *</Text>
-          <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="Kratki opis incidenta" />
-
-          <Text style={styles.label}>Opis *</Text>
-          <TextInput style={[styles.input, styles.textarea]} value={description} onChangeText={setDescription} placeholder="Detaljni opis..." multiline numberOfLines={4} />
-
-          <Text style={styles.label}>Kategorija</Text>
-          <View style={styles.optionRow}>
-            {categories.map(c => (
-              <TouchableOpacity key={c} style={[styles.option, category === c && styles.optionActive]} onPress={() => setCategory(c)}>
-                <Text style={[styles.optionText, category === c && styles.optionTextActive]}>{c}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <Text style={styles.label}>Prioritet</Text>
-          <View style={styles.optionRow}>
-            {priorities.map(p => (
-              <TouchableOpacity key={p} style={[styles.option, priority === p && { backgroundColor: priorityColor[p], borderColor: priorityColor[p] }]} onPress={() => setPriority(p)}>
-                <Text style={[styles.optionText, priority === p && styles.optionTextActive]}>{p}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <Text style={styles.label}>Foto-dokumentacija</Text>
-          <View style={styles.photoRow}>
-            <TouchableOpacity style={styles.photoBtn} onPress={takePhoto}>
-              <Text style={styles.photoBtnText}>📷 Kamera</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.photoBtn} onPress={pickPhoto}>
-              <Text style={styles.photoBtnText}>🖼️ Galerija</Text>
+        <SafeAreaView style={styles.modal}>
+          {/* Modal header */}
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Report Incident</Text>
+            <TouchableOpacity onPress={() => { resetForma(); setModalVisible(false); }}>
+              <X size={24} color="#1A1A1A" />
             </TouchableOpacity>
           </View>
-          {photo && <Text style={styles.photoAdded}>✅ Fotografija dodana</Text>}
 
-          <TouchableOpacity style={[styles.submitBtn, submitting && { opacity: 0.6 }]} onPress={handleSubmit} disabled={submitting}>
-            {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>Prijavi incident</Text>}
-          </TouchableOpacity>
+          <ScrollView contentContainerStyle={styles.modalContent}>
 
-          <TouchableOpacity style={styles.cancelBtn} onPress={() => setModalVisible(false)}>
-            <Text style={styles.cancelBtnText}>Odustani</Text>
-          </TouchableOpacity>
-        </ScrollView>
+            {/* Naslov */}
+            <Text style={styles.label}>Title *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Short description of the incident"
+              value={title}
+              onChangeText={setTitle}
+              placeholderTextColor="#aaa"
+            />
+
+            {/* Opis */}
+            <Text style={styles.label}>Description *</Text>
+            <TextInput
+              style={[styles.input, styles.textarea]}
+              placeholder="Detaljan opis što se dogodilo..."
+              value={description}
+              onChangeText={setDescription}
+              multiline
+              numberOfLines={4}
+              placeholderTextColor="#aaa"
+            />
+
+            {/* Kategorija */}
+            <Text style={styles.label}>Category</Text>
+            <View style={styles.chipRow}>
+              {KATEGORIJE.map(k => (
+                <TouchableOpacity
+                  key={k}
+                  style={[styles.chip, category === k && styles.chipActive]}
+                  onPress={() => setCategory(k)}
+                >
+                  <Text style={[styles.chipText, category === k && styles.chipTextActive]}>
+                    {kategorijaLabel[k]}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Prioritet */}
+            <Text style={styles.label}>Priority</Text>
+            <View style={styles.chipRow}>
+              {PRIORITETI.map(p => (
+                <TouchableOpacity
+                  key={p}
+                  style={[styles.chip, priority === p && { backgroundColor: prioritetBoja[p], borderColor: prioritetBoja[p] }]}
+                  onPress={() => setPriority(p)}
+                >
+                  <Text style={[styles.chipText, priority === p && { color: '#fff' }]}>
+                    {prioritetLabel[p]}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Fotografije */}
+            <Text style={styles.label}>Photos</Text>
+            <View style={styles.photoRow}>
+              {photos.map((uri, i) => (
+                <View key={i} style={styles.photoThumb}>
+                  <Image source={{ uri }} style={styles.thumbImg} />
+                  <TouchableOpacity
+                    style={styles.removePhoto}
+                    onPress={() => setPhotos(prev => prev.filter((_, idx) => idx !== i))}
+                  >
+                    <X size={12} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+              <TouchableOpacity style={styles.photoBtn} onPress={takePhoto}>
+                <Camera size={22} color="#FF6B35" />
+                <Text style={styles.photoBtnText}>Camera</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.photoBtn} onPress={pickImage}>
+                <Text style={styles.photoBtnText}>Gallery</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Submit */}
+            <TouchableOpacity
+              style={[styles.submitBtn, submitting && styles.btnDisabled]}
+              onPress={handleSubmit}
+              disabled={submitting}
+            >
+              {submitting
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={styles.submitText}>Report Incident</Text>
+              }
+            </TouchableOpacity>
+
+          </ScrollView>
+        </SafeAreaView>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F5', padding: 16 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  header: { fontSize: 24, fontWeight: 'bold', color: '#1A1A1A' },
-  addBtn: { backgroundColor: '#FF6B35', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
-  addBtnText: { color: '#fff', fontWeight: '600' },
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12, elevation: 2 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  title: { fontSize: 16, fontWeight: '600', flex: 1, color: '#1A1A1A' },
-  badge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, marginLeft: 8 },
-  badgeText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  description: { color: '#666', fontSize: 14, marginBottom: 8 },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between' },
-  meta: { color: '#888', fontSize: 13 },
-  date: { color: '#bbb', fontSize: 12, marginTop: 4 },
-  empty: { textAlign: 'center', color: '#999', marginTop: 40, fontSize: 16 },
-  modal: { flex: 1, padding: 24, backgroundColor: '#fff' },
-  modalHeader: { fontSize: 22, fontWeight: 'bold', marginBottom: 24, color: '#1A1A1A' },
-  label: { fontSize: 14, fontWeight: '600', color: '#555', marginBottom: 6, marginTop: 16 },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 12, fontSize: 15, backgroundColor: '#fafafa' },
-  textarea: { height: 100, textAlignVertical: 'top' },
-  optionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  option: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
-  optionActive: { backgroundColor: '#FF6B35', borderColor: '#FF6B35' },
-  optionText: { fontSize: 13, color: '#555' },
-  optionTextActive: { color: '#fff', fontWeight: '600' },
-  photoRow: { flexDirection: 'row', gap: 12, marginTop: 4 },
-  photoBtn: { flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 12, alignItems: 'center' },
-  photoBtnText: { fontSize: 14, color: '#555' },
-  photoAdded: { color: '#4CAF50', marginTop: 8, fontSize: 13 },
-  submitBtn: { backgroundColor: '#FF6B35', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 32 },
-  submitBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-  cancelBtn: { alignItems: 'center', padding: 16, marginTop: 8, marginBottom: 40 },
-  cancelBtnText: { color: '#888', fontSize: 15 },
+  container:      { flex: 1, backgroundColor: '#F5F5F5' },
+  header:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingTop: 20, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
+  headerTitle:    { fontSize: 20, fontWeight: 'bold', color: '#1A1A1A' },
+  addBtn:         { backgroundColor: '#FF6B35', borderRadius: 20, width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+
+  card:           { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 12, elevation: 2 },
+  cardTop:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 },
+  cardTitle:      { fontSize: 15, fontWeight: '700', color: '#1A1A1A', flex: 1, marginRight: 8 },
+  priorityBadge:  { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  priorityText:   { color: '#fff', fontSize: 11, fontWeight: '700' },
+  cardDesc:       { fontSize: 13, color: '#666', marginBottom: 8 },
+  cardMeta:       { flexDirection: 'row', gap: 12, marginBottom: 8 },
+  metaText:       { fontSize: 12, color: '#888' },
+  cardFooter:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#f0f0f0', paddingTop: 8 },
+  statusText:     { fontSize: 12, color: '#555', fontWeight: '600' },
+  dateText:       { fontSize: 12, color: '#aaa' },
+
+  emptyState:     { alignItems: 'center', paddingVertical: 60, gap: 10 },
+  emptyText:      { fontSize: 15, color: '#aaa' },
+
+  // Modal
+  modal:          { flex: 1, backgroundColor: '#F5F5F5' },
+  modalHeader:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
+  modalTitle:     { fontSize: 18, fontWeight: 'bold', color: '#1A1A1A' },
+  modalContent:   { padding: 16, paddingBottom: 40 },
+
+  label:          { fontSize: 13, fontWeight: '600', color: '#555', marginBottom: 6, marginTop: 14 },
+  input:          { backgroundColor: '#fff', borderRadius: 10, padding: 14, fontSize: 14, color: '#1A1A1A', borderWidth: 1, borderColor: '#e0e0e0' },
+  textarea:       { height: 100, textAlignVertical: 'top' },
+
+  chipRow:        { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip:           { borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: '#ddd', backgroundColor: '#fff' },
+  chipActive:     { backgroundColor: '#FF6B35', borderColor: '#FF6B35' },
+  chipText:       { fontSize: 13, color: '#555', fontWeight: '500' },
+  chipTextActive: { color: '#fff', fontWeight: '700' },
+
+  photoRow:       { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
+  photoBtn:       { width: 80, height: 80, borderRadius: 10, borderWidth: 1.5, borderColor: '#FF6B35', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', gap: 4 },
+  photoBtnText:   { fontSize: 11, color: '#FF6B35', fontWeight: '600' },
+  photoThumb:     { width: 80, height: 80, borderRadius: 10, overflow: 'hidden', position: 'relative' },
+  thumbImg:       { width: '100%', height: '100%' },
+  removePhoto:    { position: 'absolute', top: 4, right: 4, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 10, padding: 3 },
+
+  submitBtn:      { backgroundColor: '#FF6B35', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 24 },
+  btnDisabled:    { opacity: 0.6 },
+  submitText:     { color: '#fff', fontWeight: 'bold', fontSize: 16 },
 });

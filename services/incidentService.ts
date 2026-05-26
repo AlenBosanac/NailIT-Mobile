@@ -2,7 +2,7 @@ import api from './api';
 
 export type IncidentCategory = 'Safety' | 'Equipment' | 'Material' | 'Other';
 export type IncidentPriority = 'Low' | 'Medium' | 'High' | 'Critical';
-export type IncidentStatus = 'Open' | 'InProgress' | 'Closed';
+export type IncidentStatus   = 'Open' | 'InReview' | 'Closed';
 
 export interface Incident {
   id: string;
@@ -13,24 +13,39 @@ export interface Incident {
   status: IncidentStatus;
   siteId: string;
   siteName: string;
-  reportedById: string;
   reporter: string;
   createdAt: string;
 }
 
-export interface CreateIncidentData {
+export const getIncidents = async (): Promise<Incident[]> => {
+  const res = await api.get('/api/incidents');
+  return res.data;
+};
+
+export const createIncident = async (data: {
   siteId: string;
   title: string;
   description: string;
   category: IncidentCategory;
   priority: IncidentPriority;
-}
-
-export const getIncidents = async (): Promise<Incident[]> => {
-  const response = await api.get('/api/incidents');
-  return response.data;
+}): Promise<{ id: string }> => {
+  const res = await api.post('/api/incidents', data);
+  return res.data;
 };
 
-export const createIncident = async (data: CreateIncidentData): Promise<void> => {
-  await api.post('/api/incidents', data);
+export const uploadIncidentPhoto = async (
+  incidentId: string,
+  uri: string
+): Promise<{ id: string; url: string }> => {
+  const formData = new FormData();
+  formData.append('file', {
+    uri,
+    name: `photo_${Date.now()}.jpg`,
+    type: 'image/jpeg',
+  } as any);
+
+  const res = await api.post(`/api/photos/incident/${incidentId}`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return res.data;
 };
