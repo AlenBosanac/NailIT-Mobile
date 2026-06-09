@@ -8,10 +8,11 @@ interface AuthState {
   role: string | null;
   siteId: string | null;
   _hasHydrated: boolean;
-  setAuth: (fullName: string, email: string, role: string) => void;
   setSiteId: (siteId: string) => void;
   setHasHydrated: (state: boolean) => void;
   logout: () => void;
+  token :string | null;
+  setAuth: (fullName: string, email: string, role: string, token: string) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -22,10 +23,11 @@ export const useAuthStore = create<AuthState>()(
       role: null,
       siteId: null,
       _hasHydrated: false,
-      setAuth: (fullName, email, role) => set({ fullName, email, role }),
       setSiteId: (siteId) => set({ siteId }),
       setHasHydrated: (state) => set({ _hasHydrated: state }),
-      logout: () => set({ fullName: null, email: null, role: null, siteId: null }),
+      token: null,
+      setAuth: (fullName, email, role, token) => set({ fullName, email, role, token }),
+      logout: () => set({ fullName: null, email: null, role: null, siteId: null, token: null }),
     }),
     {
       name: 'auth-storage',
