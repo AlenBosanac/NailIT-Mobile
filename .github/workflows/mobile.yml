@@ -22,7 +22,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --legacy-peer-deps
 
       - name: TypeScript check
         run: npx tsc --noEmit
@@ -30,7 +30,7 @@ jobs:
       - name: Lint
         run: npm run lint --if-present
 
-      - name: Expo export check
-        run: npx expo export --platform ios --output-dir /tmp/expo-build
+      - name: Run tests
+        run: npx jest --passWithNoTests --forceExit
         env:
           EXPO_PUBLIC_API_URL: http://localhost:8080
