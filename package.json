@@ -36,6 +36,7 @@
     "expo-system-ui": "~6.0.9",
     "expo-task-manager": "~14.0.9",
     "expo-web-browser": "~15.0.10",
+    "jest-expo": "~54.0.17",
     "lucide-react-native": "^1.14.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
@@ -48,10 +49,37 @@
     "react-native-worklets": "0.5.1",
     "zustand": "^5.0.13"
   },
+  "jest": {
+    "preset": "jest-expo",
+    "transformIgnorePatterns": [
+      "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg)"
+    ],
+    "moduleFileExtensions": [
+      "ts",
+      "tsx",
+      "js",
+      "jsx"
+    ],
+    "setupFiles": [
+      "<rootDir>/__mocks__/setup.js"
+    ],
+    "moduleNameMapper": {
+      "^react-native-svg$": "<rootDir>/__mocks__/react-native-svg.js",
+      "^@/store/authStore$": "<rootDir>/__mocks__/authStore.js",
+      "^react-test-renderer$": "<rootDir>/node_modules/react-test-renderer",
+      "^react-test-renderer/(.*)$": "<rootDir>/node_modules/react-test-renderer/$1"
+    }
+  },
   "devDependencies": {
+    "@testing-library/jest-native": "^5.4.3",
+    "@testing-library/react-native": "^13.2.0",
+    "@types/jest": "^30.0.0",
     "@types/react": "~19.1.0",
+    "babel-preset-expo": "^56.0.14",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
+    "jest": "^29.7.0",
+    "react-test-renderer": "^19.1.0",
     "typescript": "~5.9.2"
   },
   "private": true
